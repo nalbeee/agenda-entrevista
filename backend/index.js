@@ -23,6 +23,10 @@ app.use('/api/entrevistas', entrevistasRoutes);
 // Conectamos el módulo de autenticación
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
+
+// Conectamos el módulo de postulantes
+const postulantesRoutes = require('./routes/postulantes.routes');
+app.use('/api/postulantes', postulantesRoutes);
 // ------------------------------------
 
 // 5. Ruta de prueba
