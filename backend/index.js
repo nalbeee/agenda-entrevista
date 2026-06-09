@@ -23,7 +23,7 @@ app.use('/api/entrevistas', entrevistasRoutes);
 
 // 5. Ruta de prueba
 app.get('/', (req, res) => {
-    res.send('¡Backend de la Agenda de Entrevistas funcionando correctamente!');
+    res.send('¡Backend de la Agenda de Entrevistas funcionando correctamente! Puto el que lo lea');
 });
 
 // ¡IMPORTANTE! Importamos los modelos con sus relaciones ya configuradas

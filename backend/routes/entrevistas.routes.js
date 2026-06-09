@@ -72,18 +72,15 @@ router.post('/', [
     // --- MIDDLEWARE QUE REVISA LAS REGLAS ---
     validarCampos
 ], async (req, res) => {
-    // ... (TODO EL CÓDIGO INTERNO DEL TRY/CATCH QUEDA EXACTAMENTE IGUAL) ...
-    const { fechaHora, modalidad, notas, entrevistadorId, postulanteId } = req.body;
     
-    // Iniciamos una transacción gestionada por Sequelize
-    const transaccion = await sequelize.transaction();
+    // CORRECCIÓN 1 y 2: Extraemos todas las variables necesarias una sola vez, incluyendo fechaHora
     const { fechaHora, modalidad, notas, entrevistadorId, postulanteId } = req.body;
 
     // Iniciamos una transacción gestionada por Sequelize
     const transaccion = await sequelize.transaction();
 
     try {
-        // REGLA DE NEGOCIO: Validar superposición de horarios para el mismo entrevistador
+        // CORRECCIÓN 3: Agregamos fechaHora al where para validar superposición exacta
         const entrevistaExistente = await Entrevista.findOne({
             where: {
                 entrevistadorId: entrevistadorId,
@@ -100,7 +97,7 @@ router.post('/', [
 
         // PASO A: Crear el registro principal de la Entrevista
         const nuevaEntrevista = await Entrevista.create({
-            fechaHora,
+            fechaHora, // Incluimos la fecha obligatoria
             modalidad,
             notas,
             entrevistadorId,
