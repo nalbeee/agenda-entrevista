@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
+const { body } = require('express-validator');
+const { validarCampos } = require('../middleware/validator');
 
 // Importamos los modelos desde el archivo de asociaciones centralizado
 const { Entrevista, Postulante, Usuario, HistorialEntrevista } = require('../modelos/asociaciones');
@@ -44,7 +46,37 @@ router.get('/', async (req, res) => {
  * 2. POST /api/entrevistas
  * PROPÓSITO: Registrar una nueva entrevista validando horarios y guardando en el historial de forma atómica.
  */
-router.post('/', async (req, res) => {
+router.post('/', [
+    // --- REGLAS DE VALIDACIÓN DE ENTRADA ---
+    body('fechaHora')
+        .notEmpty().withMessage('La fecha y hora son obligatorias.')
+        .isISO8601().withMessage('Debe ser una fecha válida (formato ISO 8601).'),
+    
+    body('modalidad')
+        .notEmpty().withMessage('La modalidad es obligatoria.')
+        .isIn(['virtual', 'presencial']).withMessage('La modalidad debe ser "virtual" o "presencial".'),
+    
+    body('entrevistadorId')
+        .notEmpty().withMessage('El ID del entrevistador es obligatorio.')
+        .isInt({ min: 1 }).withMessage('El ID del entrevistador debe ser un número entero positivo.'),
+    
+    body('postulanteId')
+        .notEmpty().withMessage('El ID del postulante es obligatorio.')
+        .isInt({ min: 1 }).withMessage('El ID del postulante debe ser un número entero positivo.'),
+    
+    body('notas')
+        .optional() // Las notas no son obligatorias
+        .isString().withMessage('Las notas deben ser texto.')
+        .isLength({ max: 255 }).withMessage('Las notas no pueden superar los 255 caracteres.'),
+        
+    // --- MIDDLEWARE QUE REVISA LAS REGLAS ---
+    validarCampos
+], async (req, res) => {
+    // ... (TODO EL CÓDIGO INTERNO DEL TRY/CATCH QUEDA EXACTAMENTE IGUAL) ...
+    const { fechaHora, modalidad, notas, entrevistadorId, postulanteId } = req.body;
+    
+    // Iniciamos una transacción gestionada por Sequelize
+    const transaccion = await sequelize.transaction();
     const { fechaHora, modalidad, notas, entrevistadorId, postulanteId } = req.body;
 
     // Iniciamos una transacción gestionada por Sequelize
