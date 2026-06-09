@@ -56,46 +56,59 @@ Todas las validaciones fallidas devuelven un código de estado **400 (Bad Reques
   ]
 }
 
-Tareas a completar equipo BACKEND:
-1. Endpoint para Consultar el Historial (Auditoría)
-El frontend va a necesitar una pantalla o un modal para ver el historial de cambios de una entrevista específica.
+***
 
-Tarea: Crear una ruta GET /api/entrevistas/:id/historial en entrevistas.routes.js.
+# 🛠️ Plan de Trabajo y Pendientes del Backend
 
-Propósito: Hacer un HistorialEntrevista.findAll({ where: { entrevistaId: id } }) ordenado por fecha para que el usuario de RRHH pueda ver toda la "cronología" de esa entrevista.
+Este documento detalla el backlog técnico de tareas pendientes en el **Backend** para dar por finalizado el desarrollo del servidor de la **Agenda de Entrevistas** y cumplir con el 100% de los requisitos del Trabajo Práctico (DDS).
 
-2. Reactivar y Aplicar la Seguridad (JWT + Roles)
-Como acordamos programar todo libre para agilizar las pruebas, falta "conectar" los candados que fabricamos.
+---
 
-Tarea: Quitar los comentarios e inyectar el middleware verificarToken en las rutas que correspondan:
+## 📌 Estado Actual del Servidor
+* **Base de datos (SQLite):** Modelos (`Usuario`, `Postulante`, `Entrevista`, `HistorialEntrevista`) con relaciones configuradas.
+* **Semillas (Seeders):** Script automatizado para la inserción de datos de prueba iniciales.
+* **Autenticación:** Login operativo (`POST /api/auth/login`) con encriptación `bcryptjs` y generación de tokens JWT.
+* **Core de Entrevistas:** Rutas para listar, crear (con validación de superposición horaria) y modificar entrevistas (con generación automática de auditoría/historial mediante transacciones).
+* **Core de Postulantes:** Rutas para listar y registrar candidatos controlando emails duplicados.
 
-POST /api/entrevistas y PUT /api/entrevistas/:id.
+---
 
-POST /api/postulantes.
+## 📋 Backlog de Tareas Pendientes (Backend)
 
-Restricción de Rol (Opcional según tu enunciado): Si el TP pide que solo el Administrador pueda dar de alta usuarios o ver ciertos reportes, se debe aplicar también el middleware verificarRolAdmin.
+### Tarea 1: Endpoint de Auditoría de Entrevistas (Historial)
+El Frontend necesita poder desplegar una línea de tiempo o un modal detallando los cambios de una entrevista.
+* **Acción:** Crear la ruta `GET /api/entrevistas/:id/historial` en `entrevistas.routes.js`.
+* **Lógica:** Consultar la tabla `HistorialEntrevista` filtrando por el ID de la entrevista recibido en los parámetros (`req.params.id`), ordenando los registros de forma cronológica descendente (`createdAt`, `DESC`).
+* **Código de respuesta esperado:** `200 OK` con el listado del historial, o `404 Not Found` si la entrevista no existe.
 
-3. Completar el ABMC de Postulantes (Modificación y Baja)
-Por ahora los postulantes solo se pueden listar y crear. Para tener un ABMC completo falta:
+### Tarea 2: Completar el ABMC de Postulantes (Edición y Baja Lógica)
+Actualmente los postulantes solo se pueden listar y crear. Falta programar las acciones para modificarlos o eliminarlos del sistema de forma segura.
+* **Acción A (Modificación):** Crear la ruta `PUT /api/postulantes/:id`. Debe validar que si se modifica el email, este no pertenezca ya a otro usuario (evitar colisiones de duplicados).
+* **Acción B (Baja Lógica):** Crear la ruta `DELETE /api/postulantes/:id`. Por integridad referencial, **NO se deben borrar físicamente** de la base de datos (ya que rompería las llaves foráneas de las entrevistas asociadas). En su lugar, el endpoint debe actualizar la columna `estado` a `'inactivo'`.
 
-PUT /api/postulantes/:id: Para poder editar los datos del candidato (teléfono, apellido, etc.).
+### Tarea 3: Reactivación y Blindaje de Seguridad (JWT + Roles)
+El sistema de generación de llaves (Login) y los guardias de seguridad (`verificarToken` y `verificarRolAdmin` en `middleware/auth.js`) ya están fabricados pero comentados para agilizar las pruebas locales.
+* **Acción A (Autenticación):** Descomentar e inyectar el middleware `verificarToken` como primera regla en los arreglos de rutas sensibles:
+  * `POST /api/entrevistas` y `PUT /api/entrevistas/:id`
+  * `POST /api/postulantes` y sus nuevas rutas de edición/baja.
+* **Acción B (Autorización por Rol):** Evaluar según los requerimientos del enunciado si ciertas operaciones (como dar de baja un postulante o crear nuevos usuarios entrevistadores) requieren estrictamente el rol de administrador. De ser así, inyectar el middleware `verificarRolAdmin` inmediatamente después de `verificarToken`.
 
-DELETE /api/postulantes/:id: Generalmente se implementa como una baja lógica (cambiar su columna estado a 'inactivo') para no romper la integridad referencial de las entrevistas que ya tiene asociadas.
+### Tarea 4: Configuración e Implementación de Pruebas Automatizadas (Testing)
+Requisito obligatorio de la cátedra para evaluar la estabilidad de la aplicación mediante la simulación de peticiones HTTP en un entorno controlado.
+* **Instalación:** Configurar e instalar las librerías de desarrollo `jest` y `supertest`.
+* **Configuración del Entorno:** Crear un script en `package.json` (`"test": "jest --watchAll --runInBand"`) y configurar las variables de entorno de prueba para evitar sobreescribir la base de datos de desarrollo.
+* **Casos de Prueba Mínimos a Desarrollar (`__tests__/`):**
+  1. **Test de Login:** Verificar que un `POST` con credenciales válidas devuelva código `200` y un string en la propiedad `token`. Verificar que credenciales erróneas devuelvan `401`.
+  2. **Test de Validaciones CRUD:** Validar que al intentar registrar un postulante sin el campo obligatorio `email`, el servidor responda con `400 Bad Request` y describa el error.
+  3. **Test de Regla de Negocio (Superposición):** Validar que si se intenta dar de alta una entrevista en el mismo horario y con el mismo entrevistador que una ya existente, el servidor responda correctamente bloqueando la operación con un código `400`.
 
-4. Pruebas Automatizadas (Testing con Jest y Supertest)
-Esta es una de las exigencias más pesadas del parcial de la cátedra para verificar el correcto funcionamiento del software.
-
-Tarea: Configurar el entorno de pruebas e instalar jest y supertest.
-
-Escribir Tests: Se deben programar al menos 3 o 4 casos de prueba automatizados en una carpeta __tests__/. Por ejemplo:
-
-Probar que el POST /api/auth/login devuelva un token si las credenciales son correctas.
-
-Probar que falle la creación de una entrevista si falta un campo obligatorio (validando el código 400).
-
-Probar que falle la creación de una entrevista si hay superposición de horarios.
-
-5. Manejo Global de Errores y Limpieza de Consola
-Para que el servidor sea verdaderamente robusto y pase las pruebas de corrección de los profesores.
+### Tarea 5: Middleware Global para el Manejo de Errores
+Prevenir caídas masivas del servidor ante fallos imprevistos de código o pérdida de conexión con la base de datos.
+* **Acción:** Crear e implementar un middleware de error centralizado al final del archivo `backend/index.js` (después de definir todas las rutas):
+  ```javascript
+  app.use((err, req, res, next) => {
+      console.error(err.stack);
+      res.status(500).json({ error: 'Ocurrió un error interno e inesperado en el servidor.' });
+  });
 
 Tarea: Implementar un middleware de manejo de errores al final del index.js para capturar cualquier fallo inesperado y evitar que el servidor se caiga (crash) ante un imprevisto.
