@@ -19,6 +19,10 @@ app.use(express.json());
 const entrevistasRoutes = require('./routes/entrevistas.routes');
 // Le decimos a Express: "Cualquier petición que empiece con /api/entrevistas, mandásela a este router"
 app.use('/api/entrevistas', entrevistasRoutes);
+
+// Conectamos el módulo de autenticación
+const authRoutes = require('./routes/auth.routes');
+app.use('/api/auth', authRoutes);
 // ------------------------------------
 
 // 5. Ruta de prueba

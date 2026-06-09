@@ -46,6 +46,7 @@ router.get('/', async (req, res) => {
  * 2. POST /api/entrevistas
  * PROPÓSITO: Registrar una nueva entrevista validando horarios y guardando en el historial de forma atómica.
  */
+
 router.post('/', [
     // --- REGLAS DE VALIDACIÓN DE ENTRADA ---
     body('fechaHora')
@@ -124,6 +125,70 @@ router.post('/', [
         await transaccion.rollback();
         console.error('Error en POST /api/entrevistas:', error);
         res.status(500).json({ error: 'Ocurrió un error interno al procesar el alta de la entrevista.' });
+    }
+});
+
+/**
+ * 3. PUT /api/entrevistas/:id
+ * PROPÓSITO: Modificar una entrevista (reprogramar, cambiar estado) y dejar registro en el historial.
+ */
+
+router.put('/:id', [
+    // Validamos solo lo que nos envíen (todo es opcional al actualizar, excepto el motivo del historial)
+    body('estado')
+        .optional()
+        .isIn(['programada', 'realizada', 'cancelada', 'reprogramada']).withMessage('Estado inválido.'),
+    body('fechaHora')
+        .optional()
+        .isISO8601().withMessage('Debe ser una fecha válida.'),
+    body('detalleHistorial')
+        .notEmpty().withMessage('Es obligatorio enviar un "detalleHistorial" explicando el motivo del cambio.'),
+    validarCampos
+], async (req, res) => {
+    const { id } = req.params;
+    // Extraemos los datos que el frontend quiere actualizar
+    const { fechaHora, modalidad, notas, estado, detalleHistorial } = req.body;
+
+    const transaccion = await sequelize.transaction();
+
+    try {
+        // 1. Buscamos la entrevista original en la base de datos
+        const entrevista = await Entrevista.findByPk(id);
+
+        if (!entrevista) {
+            await transaccion.rollback();
+            return res.status(404).json({ error: 'Entrevista no encontrada.' });
+        }
+
+        // Guardamos cuál era el estado antes de tocar nada
+        const estadoAnterior = entrevista.estado;
+        const estadoNuevo = estado || entrevista.estado;
+
+        // 2. Actualizamos los datos de la Entrevista (si no envían un dato, dejamos el que ya estaba)
+        await entrevista.update({
+            fechaHora: fechaHora || entrevista.fechaHora,
+            modalidad: modalidad || entrevista.modalidad,
+            notas: notas !== undefined ? notas : entrevista.notas,
+            estado: estadoNuevo
+        }, { transaction: transaccion });
+
+        // 3. Creamos automáticamente el registro en el Historial
+        await HistorialEntrevista.create({
+            estadoAnterior: estadoAnterior,
+            estadoNuevo: estadoNuevo,
+            detalle: detalleHistorial, // Ej: "El postulante llamó para reprogramar por enfermedad"
+            entrevistaId: entrevista.id
+        }, { transaction: transaccion });
+
+        await transaccion.commit();
+        
+        // Devolvemos la entrevista actualizada
+        res.status(200).json(entrevista);
+
+    } catch (error) {
+        await transaccion.rollback();
+        console.error('Error en PUT /api/entrevistas/:id:', error);
+        res.status(500).json({ error: 'Ocurrió un error interno al actualizar la entrevista.' });
     }
 });
 
