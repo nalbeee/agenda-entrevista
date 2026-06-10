@@ -76,24 +76,6 @@ Este documento detalla el backlog técnico de tareas pendientes en el **Backend*
 
 ## 📋 Backlog de Tareas Pendientes (Backend)
 
-### Tarea 1: Endpoint de Auditoría de Entrevistas (Historial)
-El Frontend necesita poder desplegar una línea de tiempo o un modal detallando los cambios de una entrevista.
-* **Acción:** Crear la ruta `GET /api/entrevistas/:id/historial` en `entrevistas.routes.js`.
-* **Lógica:** Consultar la tabla `HistorialEntrevista` filtrando por el ID de la entrevista recibido en los parámetros (`req.params.id`), ordenando los registros de forma cronológica descendente (`createdAt`, `DESC`).
-* **Código de respuesta esperado:** `200 OK` con el listado del historial, o `404 Not Found` si la entrevista no existe.
-
-### Tarea 2: Completar el ABMC de Postulantes (Edición y Baja Lógica)
-Actualmente los postulantes solo se pueden listar y crear. Falta programar las acciones para modificarlos o eliminarlos del sistema de forma segura.
-* **Acción A (Modificación):** Crear la ruta `PUT /api/postulantes/:id`. Debe validar que si se modifica el email, este no pertenezca ya a otro usuario (evitar colisiones de duplicados).
-* **Acción B (Baja Lógica):** Crear la ruta `DELETE /api/postulantes/:id`. Por integridad referencial, **NO se deben borrar físicamente** de la base de datos (ya que rompería las llaves foráneas de las entrevistas asociadas). En su lugar, el endpoint debe actualizar la columna `estado` a `'inactivo'`.
-
-### Tarea 3: Reactivación y Blindaje de Seguridad (JWT + Roles)
-El sistema de generación de llaves (Login) y los guardias de seguridad (`verificarToken` y `verificarRolAdmin` en `middleware/auth.js`) ya están fabricados pero comentados para agilizar las pruebas locales.
-* **Acción A (Autenticación):** Descomentar e inyectar el middleware `verificarToken` como primera regla en los arreglos de rutas sensibles:
-  * `POST /api/entrevistas` y `PUT /api/entrevistas/:id`
-  * `POST /api/postulantes` y sus nuevas rutas de edición/baja.
-* **Acción B (Autorización por Rol):** Evaluar según los requerimientos del enunciado si ciertas operaciones (como dar de baja un postulante o crear nuevos usuarios entrevistadores) requieren estrictamente el rol de administrador. De ser así, inyectar el middleware `verificarRolAdmin` inmediatamente después de `verificarToken`.
-
 ### Tarea 4: Configuración e Implementación de Pruebas Automatizadas (Testing)
 Requisito obligatorio de la cátedra para evaluar la estabilidad de la aplicación mediante la simulación de peticiones HTTP en un entorno controlado.
 * **Instalación:** Configurar e instalar las librerías de desarrollo `jest` y `supertest`.
