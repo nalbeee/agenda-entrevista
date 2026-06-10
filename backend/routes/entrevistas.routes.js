@@ -3,6 +3,7 @@ const router = express.Router();
 const { Op } = require('sequelize');
 const { body } = require('express-validator');
 const { validarCampos } = require('../middleware/validator');
+const { verificarToken } = require('../middleware/auth');
 
 // Importamos los modelos desde el archivo de asociaciones centralizado
 const { Entrevista, Postulante, Usuario, HistorialEntrevista } = require('../modelos/asociaciones');
@@ -14,7 +15,7 @@ const sequelize = require('../db');
  * PROPÓSITO: Obtener el listado completo de entrevistas ordenadas por fecha.
  * INCLUYE: Datos del postulante y del entrevistador (JOIN).
  */
-router.get('/', async (req, res) => {
+router.get('/', verificarToken,async (req, res) => {
     try {
         const entrevistas = await Entrevista.findAll({
             // Sequelize une automáticamente las tablas usando las claves foráneas configuradas
@@ -48,6 +49,8 @@ router.get('/', async (req, res) => {
  */
 
 router.post('/', [
+    verificarToken, // 🔒 Candado activado
+    
     // --- REGLAS DE VALIDACIÓN DE ENTRADA ---
     body('fechaHora')
         .notEmpty().withMessage('La fecha y hora son obligatorias.')
@@ -69,7 +72,7 @@ router.post('/', [
         .optional() // Las notas no son obligatorias
         .isString().withMessage('Las notas deben ser texto.')
         .isLength({ max: 255 }).withMessage('Las notas no pueden superar los 255 caracteres.'),
-        
+
     // --- MIDDLEWARE QUE REVISA LAS REGLAS ---
     validarCampos
 ], async (req, res) => {
@@ -134,6 +137,7 @@ router.post('/', [
  */
 
 router.put('/:id', [
+    verificarToken, // 🔒 Candado activado
     // Validamos solo lo que nos envíen (todo es opcional al actualizar, excepto el motivo del historial)
     body('estado')
         .optional()

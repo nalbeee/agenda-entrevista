@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
+const { verificarToken } = require('../middleware/auth');
 
 // Importamos el modelo y el middleware de validación
 const { Postulante } = require('../modelos/asociaciones');
@@ -10,7 +11,7 @@ const { validarCampos } = require('../middleware/validator');
  * 1. GET /api/postulantes
  * PROPÓSITO: Obtener la lista de todos los postulantes registrados.
  */
-router.get('/', async (req, res) => {
+router.get('/', verificarToken, async (req, res) => {
     try {
         const postulantes = await Postulante.findAll({
             // Los ordenamos alfabéticamente por apellido para que sea fácil leerlos
@@ -29,6 +30,8 @@ router.get('/', async (req, res) => {
  * PROPÓSITO: Registrar un nuevo candidato en el sistema.
  */
 router.post('/', [
+    verificarToken, // 🔒 Candado activado
+    
     // Reglas de validación para proteger nuestra base de datos
     body('nombres').notEmpty().withMessage('El nombre es obligatorio.'),
     body('apellidos').notEmpty().withMessage('El apellido es obligatorio.'),
