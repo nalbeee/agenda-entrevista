@@ -1,3 +1,10 @@
+/**
+ * @file index.js
+ * @description Punto de entrada principal del servidor backend de la Agenda de Entrevistas.
+ * Se encarga de inicializar Express, configurar middlewares globales, montar el enrutador,
+ * gestionar el manejo de errores y establecer la conexión con la base de datos SQLite.
+ */
+
 // 1. Cargar variables de entorno
 require('dotenv').config();
 
@@ -5,79 +12,100 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
-// IMPORTANTE: Importamos nuestra configuración de base de datos
+// Importamos nuestra configuración centralizada de la base de datos (Sequelize)
 const sequelize = require('./db.js'); 
 
-// 3. Inicializar la aplicación
+// 3. Inicializar la aplicación Express
 const app = express();
 
 // 4. Configurar Middlewares globales
-app.use(cors()); 
-app.use(express.json()); 
+app.use(cors()); // Permite peticiones cruzadas (frontend <-> backend)
+app.use(express.json()); // Permite al servidor interpretar cuerpos de peticiones en formato JSON
 
-// --- NUEVO CÓDIGO: Conectar Rutas ---
+// --- RUTAS DEL SISTEMA ---
+
+/**
+ * Módulo de Entrevistas
+ * Prefijo: /api/entrevistas
+ */
 const entrevistasRoutes = require('./routes/entrevistas.routes');
-// Le decimos a Express: "Cualquier petición que empiece con /api/entrevistas, mandásela a este router"
 app.use('/api/entrevistas', entrevistasRoutes);
 
-// Conectamos el módulo de autenticación
+/**
+ * Módulo de Autenticación
+ * Prefijo: /api/auth
+ */
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
 
-// Conectamos el módulo de postulantes
+/**
+ * Módulo de Postulantes
+ * Prefijo: /api/postulantes
+ */
 const postulantesRoutes = require('./routes/postulantes.routes');
 app.use('/api/postulantes', postulantesRoutes);
+
 // ------------------------------------
 
-// 5. Ruta de prueba
+/**
+ * 5. Ruta de prueba (Healthcheck)
+ * @route GET /
+ * @description Verifica que el servidor esté levantado y respondiendo peticiones.
+ */
 app.get('/', (req, res) => {
     res.send('¡Backend de la Agenda de Entrevistas funcionando correctamente! Puto el que lo lea');
 });
 
-// ¡IMPORTANTE! Importamos los modelos con sus relaciones ya configuradas
+// Importamos los modelos para inicializar las asociaciones y claves foráneas en la base de datos
 require('./modelos/asociaciones');
 
-// 🔍 UBICACIÓN EXACTA: MIDDLEWARE GLOBAL DE MANEJO DE ERRORES
-// Atrapa cualquier fallo no controlado para que el servidor no haga crash.
+/**
+ * 6. Middleware Global de Manejo de Errores
+ * @description Intercepta cualquier fallo no controlado en los controladores o middlewares previos.
+ * Evita que el servidor se caiga (crash) y devuelve una respuesta estructurada al cliente.
+ */
 app.use((err, req, res, next) => {
-    // Limpieza de consola: Solo mostramos el error feo si NO estamos haciendo pruebas automatizadas
+    // Limpieza de consola: Evitamos saturar la terminal durante la ejecución de pruebas automatizadas (Jest)
     if (process.env.NODE_ENV !== 'test') {
-        console.error('🚨 Error crítico interceptado por el servidor:');
+        console.error('Error crítico interceptado por el servidor:');
         console.error(err.stack);
     }
 
-    // Le respondemos al frontend educadamente para que no se quede cargando infinitamente
+    // Respuesta genérica HTTP 500 para el frontend
     res.status(500).json({ 
         error: 'Ocurrió un error interno inesperado en el servidor. Por favor, intente nuevamente más tarde.' 
     });
 });
 
-// 6. Sincronizar Base de Datos y Levantar el Servidor
+/**
+ * 7. Sincronización de Base de Datos y Arranque del Servidor
+ * @description Autentica la conexión con SQLite, sincroniza las tablas y levanta el servidor en el puerto indicado.
+ */
 const PORT = process.env.PORT || 3000;
 
 sequelize.authenticate()
     .then(() => {
-        // Silenciamos este log durante los tests para que Jest no tire advertencias
+        // Silenciamos este log durante los tests para evitar advertencias de procesos asíncronos en Jest
         if (process.env.NODE_ENV !== 'test') {
-            console.log('✅ Conexión a SQLite establecida.');
+            console.log('Conexión a SQLite establecida.');
         }
         
-        // .sync({ force: false }) crea las tablas si no existen. 
-        // Si pusieras { force: true }, borraría todo y crearía las tablas de cero cada vez que reinicias (útil en desarrollo).
+        // .sync({ force: false }) sincroniza los modelos con la base de datos creando tablas faltantes sin borrar datos.
+        // Nota para desarrollo: Usar { force: true } para recrear la base de datos desde cero.
         return sequelize.sync({ force: false }); 
     })
     .then(() => {
-        // Agrupamos el log y el arranque del servidor para que solo corran en modo normal
+        // Agrupamos el log de éxito y el inicio del servidor para que solo corran en entorno de desarrollo/producción
         if (process.env.NODE_ENV !== 'test') {
-            console.log('✅ Tablas sincronizadas con éxito.');
+            console.log('Tablas sincronizadas con éxito.');
             app.listen(PORT, () => {
-                console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+                console.log(`Servidor corriendo en http://localhost:${PORT}`);
             });
         }
     })
     .catch((error) => {
-        console.error('❌ Error al conectar o sincronizar con la base de datos:', error);
+        console.error('Error al conectar o sincronizar con la base de datos:', error);
     });
 
-// Exportamos la app para que Supertest pueda consumirla en las pruebas
+// Exportamos la instancia de la aplicación para que pueda ser consumida por Supertest en las pruebas automatizadas
 module.exports = app;

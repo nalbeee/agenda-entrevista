@@ -1,3 +1,10 @@
+/**
+ * @file postulantes.routes.js
+ * @description Rutas para el ABMC (Alta, Baja, Modificación y Consulta) de Postulantes.
+ * Implementa validaciones de datos, controles de unicidad de correos electrónicos
+ * y bajas lógicas para preservar la integridad del historial de entrevistas.
+ */
+
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
@@ -8,8 +15,12 @@ const { Postulante } = require('../modelos/asociaciones');
 const { validarCampos } = require('../middleware/validator');
 
 /**
- * 1. GET /api/postulantes
- * PROPÓSITO: Obtener la lista de todos los postulantes registrados.
+ * @route GET /api/postulantes
+ * @description Obtiene la lista completa de postulantes registrados en el sistema,
+ * ordenados alfabéticamente por apellido para facilitar su lectura en el frontend.
+ * @access Privado (Requiere Token)
+ * @returns {Array} 200 - Arreglo de objetos de postulantes.
+ * @returns {Object} 500 - Error interno del servidor.
  */
 router.get('/', verificarToken, async (req, res) => {
     try {
@@ -26,8 +37,18 @@ router.get('/', verificarToken, async (req, res) => {
 });
 
 /**
- * 2. POST /api/postulantes
- * PROPÓSITO: Registrar un nuevo candidato en el sistema.
+ * @route POST /api/postulantes
+ * @description Registra un nuevo candidato en el sistema.
+ * Aplica una regla de negocio estricta para evitar correos electrónicos duplicados.
+ * @access Privado (Requiere Token)
+ * @param {Object} req.body - Datos del postulante.
+ * @param {string} req.body.nombres - Nombres del candidato.
+ * @param {string} req.body.apellidos - Apellidos del candidato.
+ * @param {string} req.body.email - Correo electrónico (debe ser único).
+ * @param {string} [req.body.telefono] - Teléfono de contacto (Opcional).
+ * @returns {Object} 201 - Postulante creado exitosamente.
+ * @returns {Object} 400 - Error de validación o correo ya registrado.
+ * @returns {Object} 500 - Error interno del servidor.
  */
 router.post('/', [
     verificarToken, // 🔒 Candado activado
@@ -68,8 +89,19 @@ router.post('/', [
 });
 
 /**
- * 3. PUT /api/postulantes/:id
- * PROPÓSITO: Modificar los datos de un postulante existente.
+ * @route PUT /api/postulantes/:id
+ * @description Modifica los datos personales de un postulante existente.
+ * Valida que, si se cambia el correo, este no pertenezca a otro candidato.
+ * @access Privado (Requiere Token)
+ * @param {string} req.params.id - ID del postulante a actualizar.
+ * @param {string} [req.body.nombres] - Nombres actualizados.
+ * @param {string} [req.body.apellidos] - Apellidos actualizados.
+ * @param {string} [req.body.email] - Nuevo correo electrónico.
+ * @param {string} [req.body.telefono] - Nuevo teléfono.
+ * @returns {Object} 200 - Postulante actualizado con éxito.
+ * @returns {Object} 400 - Error de validación o correo en uso por otro usuario.
+ * @returns {Object} 404 - Postulante no encontrado.
+ * @returns {Object} 500 - Error interno del servidor.
  */
 router.put('/:id', [
     verificarToken, // 🔒 Candado activado
@@ -91,7 +123,7 @@ router.put('/:id', [
             return res.status(404).json({ error: 'Postulante no encontrado.' });
         }
 
-        // 2. Regla de negocio: Si están intentando cambiar el email, verificamos que no esté en uso
+        // 2. Regla de negocio: Si están intentando cambiar el email, verificamos que no esté en uso por OTRO registro
         if (email && email !== postulante.email) {
             const emailEnUso = await Postulante.findOne({ where: { email } });
             if (emailEnUso) {
@@ -116,8 +148,14 @@ router.put('/:id', [
 });
 
 /**
- * 4. DELETE /api/postulantes/:id
- * PROPÓSITO: Realizar una baja lógica del postulante para no romper el historial de entrevistas.
+ * @route DELETE /api/postulantes/:id
+ * @description Realiza una baja lógica del postulante cambiando su estado a 'inactivo'.
+ * Esto evita el borrado físico (destroy) para no romper las claves foráneas del historial de entrevistas.
+ * @access Privado (Requiere Token)
+ * @param {string} req.params.id - ID del postulante a dar de baja.
+ * @returns {Object} 200 - Mensaje de éxito y objeto del postulante actualizado.
+ * @returns {Object} 404 - Postulante no encontrado.
+ * @returns {Object} 500 - Error interno del servidor.
  */
 router.delete('/:id', verificarToken, async (req, res) => {
     const { id } = req.params;

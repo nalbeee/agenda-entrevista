@@ -1,3 +1,11 @@
+/**
+ * @file entrevistas.routes.js
+ * @description Rutas principales del dominio de Entrevistas (ABMC).
+ * Gestiona la programación, modificación y listado de citas, aplicando reglas de negocio
+ * estrictas (como evitar superposiciones) y utilizando transacciones para mantener
+ * un registro de auditoría automático.
+ */
+
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
@@ -5,25 +13,26 @@ const { body } = require('express-validator');
 const { validarCampos } = require('../middleware/validator');
 const { verificarToken } = require('../middleware/auth');
 
-// Importamos los modelos desde el archivo de asociaciones centralizado
+// Importamos los modelos y la conexión a la base de datos
 const { Entrevista, Postulante, Usuario, HistorialEntrevista } = require('../modelos/asociaciones');
-// Importamos la conexión de la base de datos para la gestión de transacciones
 const sequelize = require('../db');
 
 /**
- * 1. GET /api/entrevistas
- * PROPÓSITO: Obtener el listado completo de entrevistas ordenadas por fecha.
- * INCLUYE: Datos del postulante y del entrevistador (JOIN).
+ * @route GET /api/entrevistas
+ * @description Obtiene el listado completo de entrevistas ordenadas cronológicamente.
+ * Utiliza JOINs de Sequelize (include) para adjuntar datos básicos del postulante y del entrevistador.
+ * @access Privado (Requiere Token)
+ * @returns {Array} 200 - Arreglo de objetos de entrevistas.
+ * @returns {Object} 500 - Error interno del servidor.
  */
-router.get('/', verificarToken,async (req, res) => {
+router.get('/', verificarToken, async (req, res) => {
     try {
         const entrevistas = await Entrevista.findAll({
-            // Sequelize une automáticamente las tablas usando las claves foráneas configuradas
             include: [
                 {
                     model: Postulante,
                     as: 'postulante',
-                    attributes: ['id', 'nombres', 'apellidos', 'email'] // Campos necesarios para el frontend
+                    attributes: ['id', 'nombres', 'apellidos', 'email'] // Solo bajamos los datos necesarios para la UI
                 },
                 {
                     model: Usuario,
@@ -31,11 +40,10 @@ router.get('/', verificarToken,async (req, res) => {
                     attributes: ['id', 'nombre', 'email']
                 }
             ],
-            // Ordenamos cronológicamente: de la más cercana a la más lejana
+            // Ordenamos de la cita más próxima a la más lejana en el tiempo
             order: [['fechaHora', 'ASC']]
         });
 
-        // Respuesta exitosa al frontend
         res.status(200).json(entrevistas);
     } catch (error) {
         console.error('Error en GET /api/entrevistas:', error);
@@ -44,119 +52,104 @@ router.get('/', verificarToken,async (req, res) => {
 });
 
 /**
- * 2. POST /api/entrevistas
- * PROPÓSITO: Registrar una nueva entrevista validando horarios y guardando en el historial de forma atómica.
+ * @route POST /api/entrevistas
+ * @description Crea una nueva entrevista. Valida previamente que el entrevistador no tenga
+ * otra cita agendada en el mismo horario exacto. Toda la operación es transaccional.
+ * @access Privado (Requiere Token)
+ * @param {string} req.body.fechaHora - Fecha y hora de la cita (ISO 8601).
+ * @param {string} req.body.modalidad - 'virtual' o 'presencial'.
+ * @param {number} req.body.entrevistadorId - ID del usuario que entrevistará.
+ * @param {number} req.body.postulanteId - ID del candidato.
+ * @param {string} [req.body.notas] - Comentarios adicionales.
+ * @returns {Object} 201 - Entrevista creada exitosamente.
+ * @returns {Object} 400 - Error de validación o conflicto de superposición horaria.
+ * @returns {Object} 500 - Error interno (Rollback ejecutado).
  */
-
 router.post('/', [
-    verificarToken, // 🔒 Candado activado
-    
-    // --- REGLAS DE VALIDACIÓN DE ENTRADA ---
-    body('fechaHora')
-        .notEmpty().withMessage('La fecha y hora son obligatorias.')
-        .isISO8601().withMessage('Debe ser una fecha válida (formato ISO 8601).'),
-    
-    body('modalidad')
-        .notEmpty().withMessage('La modalidad es obligatoria.')
-        .isIn(['virtual', 'presencial']).withMessage('La modalidad debe ser "virtual" o "presencial".'),
-    
-    body('entrevistadorId')
-        .notEmpty().withMessage('El ID del entrevistador es obligatorio.')
-        .isInt({ min: 1 }).withMessage('El ID del entrevistador debe ser un número entero positivo.'),
-    
-    body('postulanteId')
-        .notEmpty().withMessage('El ID del postulante es obligatorio.')
-        .isInt({ min: 1 }).withMessage('El ID del postulante debe ser un número entero positivo.'),
-    
-    body('notas')
-        .optional() // Las notas no son obligatorias
-        .isString().withMessage('Las notas deben ser texto.')
-        .isLength({ max: 255 }).withMessage('Las notas no pueden superar los 255 caracteres.'),
-
-    // --- MIDDLEWARE QUE REVISA LAS REGLAS ---
+    verificarToken,
+    body('fechaHora').notEmpty().withMessage('La fecha y hora son obligatorias.').isISO8601().withMessage('Debe ser una fecha válida (formato ISO 8601).'),
+    body('modalidad').notEmpty().withMessage('La modalidad es obligatoria.').isIn(['virtual', 'presencial']).withMessage('La modalidad debe ser "virtual" o "presencial".'),
+    body('entrevistadorId').notEmpty().withMessage('El ID del entrevistador es obligatorio.').isInt({ min: 1 }).withMessage('El ID del entrevistador debe ser un número entero positivo.'),
+    body('postulanteId').notEmpty().withMessage('El ID del postulante es obligatorio.').isInt({ min: 1 }).withMessage('El ID del postulante debe ser un número entero positivo.'),
+    body('notas').optional().isString().withMessage('Las notas deben ser texto.').isLength({ max: 255 }).withMessage('Las notas no pueden superar los 255 caracteres.'),
     validarCampos
 ], async (req, res) => {
     
-    // CORRECCIÓN 1 y 2: Extraemos todas las variables necesarias una sola vez, incluyendo fechaHora
     const { fechaHora, modalidad, notas, entrevistadorId, postulanteId } = req.body;
-
-    // Iniciamos una transacción gestionada por Sequelize
+    
+    // Iniciamos una transacción para garantizar integridad: si falla el historial, no se guarda la entrevista
     const transaccion = await sequelize.transaction();
 
     try {
-        // CORRECCIÓN 3: Agregamos fechaHora al where para validar superposición exacta
+        // Regla de Negocio: Validar superposición exacta de horario para el entrevistador
         const entrevistaExistente = await Entrevista.findOne({
             where: {
                 entrevistadorId: entrevistadorId,
                 fechaHora: fechaHora,
-                estado: { [Op.not]: 'cancelada' } // Ignoramos si la cita previa fue cancelada
+                estado: { [Op.not]: 'cancelada' } // Ignoramos choques con citas previamente canceladas
             }
         });
 
         if (entrevistaExistente) {
-            // Cancelamos el proceso inmediatamente si hay choque de agenda
             await transaccion.rollback();
             return res.status(400).json({ error: 'El entrevistador ya tiene una entrevista asignada en ese horario exacto.' });
         }
 
-        // PASO A: Crear el registro principal de la Entrevista
+        // Paso 1: Crear la entidad Entrevista
         const nuevaEntrevista = await Entrevista.create({
-            fechaHora, // Incluimos la fecha obligatoria
+            fechaHora,
             modalidad,
             notas,
             entrevistadorId,
             postulanteId,
-            estado: 'programada' // Estado por defecto al nacer la entrevista
+            estado: 'programada'
         }, { transaction: transaccion });
 
-        // PASO B: Crear el registro de auditoría en la tabla historial_entrevistas
+        // Paso 2: Generar el registro de auditoría vinculado
         await HistorialEntrevista.create({
-            estadoAnterior: null, // No existía un estado previo
+            estadoAnterior: null,
             estadoNuevo: 'programada',
             detalle: 'Alta inicial del registro de entrevista',
-            entrevistaId: nuevaEntrevista.id // Vinculamos al ID generado en el paso anterior
+            entrevistaId: nuevaEntrevista.id
         }, { transaction: transaccion });
 
-        // Confirmamos todos los cambios de forma simultánea en SQLite
+        // Confirmamos cambios en base de datos
         await transaccion.commit();
-
-        // Enviamos el objeto creado con el código de estado 201 (Creado)
         res.status(201).json(nuevaEntrevista);
 
     } catch (error) {
-        // Deshacemos cualquier inserción parcial para proteger la integridad de los datos
-        await transaccion.rollback();
+        await transaccion.rollback(); // Revertimos operaciones parciales ante cualquier fallo
         console.error('Error en POST /api/entrevistas:', error);
         res.status(500).json({ error: 'Ocurrió un error interno al procesar el alta de la entrevista.' });
     }
 });
 
 /**
- * 3. PUT /api/entrevistas/:id
- * PROPÓSITO: Modificar una entrevista (reprogramar, cambiar estado) y dejar registro en el historial.
+ * @route PUT /api/entrevistas/:id
+ * @description Modifica una entrevista (reprogramación, cancelación, finalización) de 
+ * forma transaccional, exigiendo que se adjunte un motivo para el historial.
+ * @access Privado (Requiere Token)
+ * @param {string} req.params.id - ID de la entrevista a actualizar.
+ * @param {string} [req.body.estado] - Nuevo estado (programada, realizada, cancelada, reprogramada).
+ * @param {string} [req.body.fechaHora] - Nueva fecha de cita.
+ * @param {string} req.body.detalleHistorial - Motivo de la modificación (Obligatorio).
+ * @returns {Object} 200 - Entrevista actualizada con éxito.
+ * @returns {Object} 404 - Entrevista no encontrada.
+ * @returns {Object} 500 - Error interno (Rollback ejecutado).
  */
-
 router.put('/:id', [
-    verificarToken, // 🔒 Candado activado
-    // Validamos solo lo que nos envíen (todo es opcional al actualizar, excepto el motivo del historial)
-    body('estado')
-        .optional()
-        .isIn(['programada', 'realizada', 'cancelada', 'reprogramada']).withMessage('Estado inválido.'),
-    body('fechaHora')
-        .optional()
-        .isISO8601().withMessage('Debe ser una fecha válida.'),
-    body('detalleHistorial')
-        .notEmpty().withMessage('Es obligatorio enviar un "detalleHistorial" explicando el motivo del cambio.'),
+    verificarToken,
+    body('estado').optional().isIn(['programada', 'realizada', 'cancelada', 'reprogramada']).withMessage('Estado inválido.'),
+    body('fechaHora').optional().isISO8601().withMessage('Debe ser una fecha válida.'),
+    body('detalleHistorial').notEmpty().withMessage('Es obligatorio enviar un "detalleHistorial" explicando el motivo del cambio.'),
     validarCampos
 ], async (req, res) => {
     const { id } = req.params;
-    // Extraemos los datos que el frontend quiere actualizar
     const { fechaHora, modalidad, notas, estado, detalleHistorial } = req.body;
 
     const transaccion = await sequelize.transaction();
 
     try {
-        // 1. Buscamos la entrevista original en la base de datos
         const entrevista = await Entrevista.findByPk(id);
 
         if (!entrevista) {
@@ -164,11 +157,10 @@ router.put('/:id', [
             return res.status(404).json({ error: 'Entrevista no encontrada.' });
         }
 
-        // Guardamos cuál era el estado antes de tocar nada
         const estadoAnterior = entrevista.estado;
         const estadoNuevo = estado || entrevista.estado;
 
-        // 2. Actualizamos los datos de la Entrevista (si no envían un dato, dejamos el que ya estaba)
+        // Paso 1: Actualizar la Entrevista (respetando campos no enviados)
         await entrevista.update({
             fechaHora: fechaHora || entrevista.fechaHora,
             modalidad: modalidad || entrevista.modalidad,
@@ -176,17 +168,15 @@ router.put('/:id', [
             estado: estadoNuevo
         }, { transaction: transaccion });
 
-        // 3. Creamos automáticamente el registro en el Historial
+        // Paso 2: Dejar constancia en el historial
         await HistorialEntrevista.create({
             estadoAnterior: estadoAnterior,
             estadoNuevo: estadoNuevo,
-            detalle: detalleHistorial, // Ej: "El postulante llamó para reprogramar por enfermedad"
+            detalle: detalleHistorial,
             entrevistaId: entrevista.id
         }, { transaction: transaccion });
 
         await transaccion.commit();
-        
-        // Devolvemos la entrevista actualizada
         res.status(200).json(entrevista);
 
     } catch (error) {
@@ -197,26 +187,27 @@ router.put('/:id', [
 });
 
 /**
- * 4. GET /api/entrevistas/:id/historial
- * PROPÓSITO: Consultar toda la cronología de cambios de estado y reprogramaciones de una entrevista específica.
+ * @route GET /api/entrevistas/:id/historial
+ * @description Consulta la cronología de eventos y reprogramaciones de una entrevista.
+ * @access Privado (Requiere Token)
+ * @param {string} req.params.id - ID de la entrevista.
+ * @returns {Array} 200 - Arreglo de registros de auditoría, ordenados desde el más reciente.
+ * @returns {Object} 404 - Entrevista no encontrada.
  */
-router.get('/:id/historial', async (req, res) => {
+router.get('/:id/historial', verificarToken, async (req, res) => {
     const { id } = req.params;
 
     try {
-        // 1. Primero verificamos si la entrevista realmente existe
         const entrevista = await Entrevista.findByPk(id);
         if (!entrevista) {
             return res.status(404).json({ error: 'Entrevista no encontrada.' });
         }
 
-        // 2. Buscamos todos los registros del historial vinculados a este ID de entrevista
         const historial = await HistorialEntrevista.findAll({
             where: { entrevistaId: id }, 
-            order: [['fechaCambio', 'DESC']]
+            order: [['createdAt', 'DESC']] // El evento más reciente primero
         });
 
-        // 3. Devolvemos la lista al frontend (puede ser un array vacío si nunca sufrió modificaciones)
         res.status(200).json(historial);
 
     } catch (error) {
