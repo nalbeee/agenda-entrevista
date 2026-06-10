@@ -54,6 +54,7 @@ Todas las validaciones fallidas devuelven un código de estado **400 (Bad Reques
   "detalles": [ 
       // Array con los campos específicos que fallaron (si aplica)
   ]
+<<<<<<< Updated upstream
 }
 
 ***
@@ -112,3 +113,6 @@ Prevenir caídas masivas del servidor ante fallos imprevistos de código o pérd
   });
 
 Tarea: Implementar un middleware de manejo de errores al final del index.js para capturar cualquier fallo inesperado y evitar que el servidor se caiga (crash) ante un imprevisto.
+=======
+}
+>>>>>>> Stashed changes
