@@ -37,22 +37,47 @@ app.get('/', (req, res) => {
 // ¡IMPORTANTE! Importamos los modelos con sus relaciones ya configuradas
 require('./modelos/asociaciones');
 
+// 🔍 UBICACIÓN EXACTA: MIDDLEWARE GLOBAL DE MANEJO DE ERRORES
+// Atrapa cualquier fallo no controlado para que el servidor no haga crash.
+app.use((err, req, res, next) => {
+    // Limpieza de consola: Solo mostramos el error feo si NO estamos haciendo pruebas automatizadas
+    if (process.env.NODE_ENV !== 'test') {
+        console.error('🚨 Error crítico interceptado por el servidor:');
+        console.error(err.stack);
+    }
+
+    // Le respondemos al frontend educadamente para que no se quede cargando infinitamente
+    res.status(500).json({ 
+        error: 'Ocurrió un error interno inesperado en el servidor. Por favor, intente nuevamente más tarde.' 
+    });
+});
+
 // 6. Sincronizar Base de Datos y Levantar el Servidor
 const PORT = process.env.PORT || 3000;
 
 sequelize.authenticate()
     .then(() => {
-        console.log('✅ Conexión a SQLite establecida.');
+        // Silenciamos este log durante los tests para que Jest no tire advertencias
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('✅ Conexión a SQLite establecida.');
+        }
+        
         // .sync({ force: false }) crea las tablas si no existen. 
         // Si pusieras { force: true }, borraría todo y crearía las tablas de cero cada vez que reinicias (útil en desarrollo).
         return sequelize.sync({ force: false }); 
     })
     .then(() => {
-        console.log('✅ Tablas sincronizadas con éxito.');
-        app.listen(PORT, () => {
-            console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-        });
+        // Agrupamos el log y el arranque del servidor para que solo corran en modo normal
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('✅ Tablas sincronizadas con éxito.');
+            app.listen(PORT, () => {
+                console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+            });
+        }
     })
     .catch((error) => {
         console.error('❌ Error al conectar o sincronizar con la base de datos:', error);
     });
+
+// Exportamos la app para que Supertest pueda consumirla en las pruebas
+module.exports = app;
