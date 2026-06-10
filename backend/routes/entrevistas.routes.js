@@ -192,4 +192,33 @@ router.put('/:id', [
     }
 });
 
+/**
+ * 4. GET /api/entrevistas/:id/historial
+ * PROPÓSITO: Consultar toda la cronología de cambios de estado y reprogramaciones de una entrevista específica.
+ */
+router.get('/:id/historial', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. Primero verificamos si la entrevista realmente existe
+        const entrevista = await Entrevista.findByPk(id);
+        if (!entrevista) {
+            return res.status(404).json({ error: 'Entrevista no encontrada.' });
+        }
+
+        // 2. Buscamos todos los registros del historial vinculados a este ID de entrevista
+        const historial = await HistorialEntrevista.findAll({
+            where: { entrevistaId: id }, 
+            order: [['fechaCambio', 'DESC']]
+        });
+
+        // 3. Devolvemos la lista al frontend (puede ser un array vacío si nunca sufrió modificaciones)
+        res.status(200).json(historial);
+
+    } catch (error) {
+        console.error('Error en GET /api/entrevistas/:id/historial:', error);
+        res.status(500).json({ error: 'Hubo un error interno al obtener el historial de la entrevista.' });
+    }
+});
+
 module.exports = router;
